@@ -1,327 +1,149 @@
-"""
-Medical Apriori Algorithm Module for Association Rule Mining.
-
-This module implements the Apriori algorithm for mining association rules
-from medical records, specifically for hydrocephalus postoperative infection
-prediction.
-"""
-
-import itertools
-from typing import Dict, List, Tuple
-
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
+import itertools
 
+min_support = 0.3
+min_confidence = 0.8
 
-class Cartesian:
-    """
-    Cartesian product generator for combining itemsets.
+def loadDataSet(filename):
+    datas = []
+    with open(filename, 'r', encoding='utf-8') as fr:
+        for line in fr:
+            datas.append(line.strip().split(','))
+    return datas
 
-    This class generates the Cartesian product of multiple data lists,
-    used for combining frequent itemsets with class labels.
-    """
+def count(items, datas):
+    num = 0
+    for data in datas:
+        if set(items).issubset(set(data)):
+            num += 1
+    return num
 
+def getFleft(items, datas):
+    fl = []
+    sl = []
+    for item in items:
+        support = count(item, datas) / float(len(datas))
+        if support > 0:
+            if sorted(item) not in fl:
+                fl.append(sorted(item))
+                sl.append(support)
+    return fl, sl
+
+def generate_Fleft(items, datas):
+    f_s = {}
+    f_left = []
+    fl, sl = getFleft(items, datas)
+    for f, s in zip(fl, sl):
+        f_left.append(f)
+        f_s[frozenset(f)] = s
+    return f_left, f_s
+
+class cartesian(object):
     def __init__(self):
         self._data_list = []
 
-    def add_data(self, data: List = None):
-        """
-        Add data list for Cartesian product generation.
-
-        Args:
-            data: List of items to add
-        """
-        if data is None:
-            data = []
+    def add_data(self, data=[]):
         self._data_list.append(data)
 
-    def build(self) -> List[Tuple]:
-        """
-        Compute Cartesian product of all added data lists.
+    def build(self):
+        res = []
+        for item in itertools.product(*self._data_list):
+            res.append(item)
+        return res
 
-        Returns:
-            List of tuples representing the Cartesian product
-        """
-        return list(itertools.product(*self._data_list))
-
-
-def load_dataset(filename: str) -> List[List[str]]:
-    """
-    Load dataset from a CSV file.
-
-    Args:
-        filename: Path to the data file
-
-    Returns:
-        List of transactions where each transaction is a list of items
-    """
-    data = []
-    with open(filename, "r", encoding="utf-8") as f:
-        for line in f:
-            data.append(line.strip().split(","))
-    return data
-
-
-def count_items(items: List[str], data: List[List[str]]) -> int:
-    """
-    Count occurrences of an itemset in the dataset.
-
-    Args:
-        items: Itemset to count
-        data: Dataset to search in
-
-    Returns:
-        Number of occurrences
-    """
-    count = 0
-    for transaction in data:
-        if set(items).issubset(set(transaction)):
-            count += 1
-    return count
-
-
-def get_frequent_items(
-    items: List[List[str]], data: List[List[str]]
-) -> Tuple[List[List[str]], List[float]]:
-    """
-    Get frequent items and their support values.
-
-    Args:
-        items: Candidate itemsets
-        data: Dataset
-
-    Returns:
-        Tuple of (frequent_itemsets, support_values)
-    """
-    freq_list = []
-    support_list = []
-
-    for item in items:
-        support = count_items(item, data) / float(len(data))
-        if support > 0:
-            if sorted(item) not in freq_list:
-                freq_list.append(sorted(item))
-                support_list.append(support)
-
-    return freq_list, support_list
-
-
-def generate_frequent_itemsets(
-    items: List[List[str]], data: List[List[str]]
-) -> Tuple[List[List[str]], Dict[frozenset, float]]:
-    """
-    Generate frequent itemsets from candidate items.
-
-    Args:
-        items: Candidate itemsets
-        data: Dataset
-
-    Returns:
-        Tuple of (frequent_itemsets, support_dict)
-    """
-    support_dict = {}
-    frequent_itemsets = []
-
-    freq_list, support_list = get_frequent_items(items, data)
-
-    for freq, support in zip(freq_list, support_list):
-        frequent_itemsets.append(freq)
-        support_dict[frozenset(freq)] = support
-
-    return frequent_itemsets, support_dict
-
-
-def generate_rules(
-    frequent_merge: List[Tuple],
-    merge_support: List[float],
-    left_support: Dict,
-    enhancement_ratio: Dict,
-    class_support: Dict,
-) -> List[Tuple]:
-    """
-    Generate association rules from frequent itemsets.
-
-    Args:
-        frequent_merge: Frequent itemsets merged with class labels
-        merge_support: Support values for merged itemsets
-        left_support: Support values for left-hand side items
-        enhancement_ratio: Enhancement ratio values
-        class_support: Support values for class labels
-
-    Returns:
-        List of association rules
-    """
+def generate_rule(fm, sm, left_s, f_er, f_s_class):
     rules = []
-    for freq, support in zip(frequent_merge, merge_support):
-        rules.extend(
-            _rule(freq, support, left_support, enhancement_ratio, class_support, [])
-        )
+    for f, s in zip(fm, sm):
+        rules.extend(rule(f, s, left_s, f_er, f_s_class, []))
     return rules
 
-
-def _rule(
-    freq: Tuple,
-    support: float,
-    left_support: Dict,
-    enhancement_ratio: Dict,
-    class_support: Dict,
-    current_rules: List,
-) -> List[Tuple]:
-    """
-    Generate a single association rule.
-
-    Args:
-        freq: Frequent itemset tuple (LHS, RHS)
-        support: Support value
-        left_support: Support values for LHS
-        enhancement_ratio: Enhancement ratio values
-        class_support: Support values for class
-        current_rules: Accumulated rules
-
-    Returns:
-            Updated list of rules
-    """
-    lift = class_support[frozenset(freq[0])] / left_support[frozenset(freq[0])]
-    strength = (2 * enhancement_ratio[frozenset(freq[0])] * lift) / (
-        enhancement_ratio[frozenset(freq[0])] + lift
-    )
-
+def rule(f, s, left_s, f_er, f_s_class, cur_rule):
+    lift = f_s_class[frozenset(f[0])] / left_s[frozenset(f[0])]
+    strength = (2 * f_er[frozenset(f[0])] * lift) / (f_er[frozenset(f[0])] + lift)
     if lift >= 1:
-        current_rules.append(
-            (freq[0], freq[1], enhancement_ratio[frozenset(freq[0])], lift, strength)
-        )
+        cur_rule.append((f[0], f[1], f_er[frozenset(f[0])], lift, strength))
+    return cur_rule
 
-    return current_rules
+def main():
+    df = pd.read_excel("./data/2020.7.11_fenji.xlsx", header=0, dtype=str)
+    df1 = df[df['47术后是否感染'] == '471']
+    df2 = df[df['47术后是否感染'] == '472']
+    datas = df.values.tolist()
+    datas1 = df1.values.tolist()
+    datas2 = df2.values.tolist()
 
+    fk_new = []
+    with open("./data/fk_left_neg.txt", 'r', encoding='utf-8') as fr:
+        for line in fr:
+            fk_new.append(line.strip().split(' '))
 
-def mine_association_rules(
-    data_file: str = "./data/2020.7.11_fenji.xlsx",
-    frequent_itemsets_file: str = "./data/fk_left_neg.txt",
-    min_enhancement_ratio: float = 1.0,
-    min_confidence: float = 0.2,
-) -> None:
-    """
-    Main function to mine association rules from medical data.
+    fk_positive, f_s_positive = generate_Fleft(fk_new, datas2)
+    print("频繁项集：{} 个".format(len(f_s_positive)))
+    for key, value in f_s_positive.items():
+        print("{} : {:.2f}".format(key, value))
 
-    Args:
-        data_file: Path to the medical data Excel file
-        frequent_itemsets_file: Path to the frequent itemsets file
-        min_enhancement_ratio: Minimum enhancement ratio threshold
-        min_confidence: Minimum confidence threshold
-    """
-    # Load data
-    df = pd.read_excel(data_file, header=0, dtype=str)
+    fk_negative, f_s_negative = generate_Fleft(fk_positive, datas1)
+    print("频繁项集：{} 个".format(len(f_s_negative)))
+    for key, value in f_s_negative.items():
+        print("{} : {:.2f}".format(key, value))
 
-    # Split into positive and negative classes
-    df_positive = df[df["47术后是否感染"] == "471"]
-    df_negative = df[df["47术后是否感染"] == "472"]
-
-    data_all = df.values.tolist()
-    data_positive = df_positive.values.tolist()
-    data_negative = df_negative.values.tolist()
-
-    # Load frequent itemsets
-    frequent_itemsets = []
-    with open(frequent_itemsets_file, "r", encoding="utf-8") as f:
-        for line in f:
-            frequent_itemsets.append(line.strip().split(" "))
-
-    # Generate frequent itemsets for positive class
-    fk_positive, support_positive = generate_frequent_itemsets(
-        frequent_itemsets, data_negative
-    )
-    print(f"Frequent itemsets: {len(support_positive)}")
-    for key, value in support_positive.items():
-        print(f"{key} : {value:.2f}")
-
-    # Generate frequent itemsets for negative class
-    fk_negative, support_negative = generate_frequent_itemsets(fk_positive, data_positive)
-    print(f"Frequent itemsets: {len(support_negative)}")
-    for key, value in support_negative.items():
-        print(f"{key} : {value:.2f}")
-
-    # Filter by enhancement ratio
     fk_final = []
-    enhancement_dict = {}
-
+    f_er = {}
+    min_er = 1
     for item in fk_negative:
-        if (
-            support_positive[frozenset(item)] / support_negative[frozenset(item)]
-            >= min_enhancement_ratio
-        ):
+        if f_s_positive[frozenset(item)] / f_s_negative[frozenset(item)] >= min_er:
             fk_final.append(item)
-            enhancement_dict[frozenset(item)] = (
-                support_positive[frozenset(item)] / support_negative[frozenset(item)]
-            )
+            f_er[frozenset(item)] = f_s_positive[frozenset(item)] / f_s_negative[frozenset(item)]
+    print("频繁项集：{} 个".format(len(fk_final)))
+    for key, value in f_er.items():
+        print("{} : {:.2f}".format(key, value))
 
-    print(f"Frequent itemsets after ER filtering: {len(fk_final)}")
-    for key, value in enhancement_dict.items():
-        print(f"{key} : {value:.2f}")
+    fk_all, f_s_all = generate_Fleft(fk_final, datas)
+    print("频繁项集：{} 个".format(len(f_s_all)))
+    for key, value in f_s_all.items():
+        print("{} : {:.2f}".format(key, value))
 
-    # Generate final frequent itemsets
-    fk_all, support_all = generate_frequent_itemsets(fk_final, data_all)
-    print(f"Final frequent itemsets: {len(support_all)}")
-    for key, value in support_all.items():
-        print(f"{key} : {value:.2f}")
-
-    # Final filtering
     fk_final = []
-    enhancement_dict = {}
-
+    f_er = {}
+    min_er = 1
     for item in fk_all:
-        if (
-            support_positive[frozenset(item)] / support_all[frozenset(item)]
-            >= min_enhancement_ratio
-        ):
+        if f_s_positive[frozenset(item)] / f_s_all[frozenset(item)] >= min_er:
             fk_final.append(item)
-            enhancement_dict[frozenset(item)] = (
-                support_positive[frozenset(item)] / support_all[frozenset(item)]
-            )
+            f_er[frozenset(item)] = f_s_positive[frozenset(item)] / f_s_all[frozenset(item)]
+    print("频繁项集：{} 个".format(len(fk_final)))
+    for key, value in f_er.items():
+        print("{} : {:.2f}".format(key, value))
 
-    print(f"Final filtered itemsets: {len(fk_final)}")
-    for key, value in enhancement_dict.items():
-        print(f"{key} : {value:.2f}")
+    right = [['472']]
+    car = cartesian()
+    car.add_data(fk_final)
+    car.add_data(right)
+    issues = car.build()
+    print(len(issues))
 
-    # Generate Cartesian product with class label
-    right = [["472"]]
-    cart = Cartesian()
-    cart.add_data(fk_final)
-    cart.add_data(right)
-    issues = cart.build()
-    print(f"Total rules to evaluate: {len(issues)}")
-
-    # Calculate support for each rule
-    issue_support = []
+    issue_supp = []
     for items in issues:
-        support = count_items(items[0] + items[1], data_all) / len(data_all)
-        issue_support.append(support)
+        supp = count(items[0] + items[1], datas) / len(datas)
+        issue_supp.append(supp)
 
-    # Generate association rules
-    rules = generate_rules(
-        issues, issue_support, support_all, enhancement_dict, support_positive
-    )
-    print(f"Association rules: {len(rules)}")
+    rules = generate_rule(issues, issue_supp, f_s_all, f_er, f_s_positive)
+    print("关联规则：{}个".format(len(rules)))
 
-    # Extract metrics for visualization
-    x = []
-    y = []
-    c = []
+    new_rules = []
     for item in rules:
-        x.append(item[2])  # Enhancement ratio
-        y.append(item[3])  # Lift
-        c.append(item[4])  # Strength
+        new_rules.append(item[::-1])
+    new_rules = sorted(new_rules, reverse=True)
+    print(new_rules)
 
-    # Plot scatter diagram
-    plt.style.use("default")
-    sc = plt.scatter(x, y, c=c, s=20, marker="o", cmap="Blues")
-    plt.xlabel("Enhancement Ratio")
-    plt.ylabel("Lift")
-    cb = plt.colorbar(sc)
-    cb.set_label("Rule Strength", labelpad=-18, y=-0.02, rotation=0)
-    plt.savefig("./data/figure/scatter.svg", bbox_inches="tight")
-    plt.show()
+    count_num = 0
+    for strength, lift, er, result, reason in new_rules[:100]:
+        if "301" in reason:
+            print("{} ----> {} : {:.4f},{:.4f},{:.4f}".format(reason, result, er, lift, strength))
+            count_num += 1
+    print("感染关联规则：{}个".format(count_num))
 
+    for item in rules:
+        print(item)
 
 if __name__ == "__main__":
-    mine_association_rules()
+    main()
